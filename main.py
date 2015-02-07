@@ -17,18 +17,20 @@ DRAG_END = 1
 DRAG_BEGINNING = 2
 
 directions = [
-        [ (-92, 0), (92, 0), (32, 64) ],
-        [ (-92, 0), (92, 0), (-32, -64) ],
-        [ None ]
+        [ (-72, 0), (72, 0), (32, 64) ],
+        [ (-72, 0), (72, 0), (-32, -64) ],
+        [ (0, -72), (-62, -36), (0, 72) ]
         ]
 
-sides = [
-        [ DRAG_BEGINNING, DRAG_END, DRAG_BEGINNING ],
-        [ DRAG_BEGINNING, DRAG_END, DRAG_END ],
-        [ None ]
+in_out_direction = [
+        [ DRAG_END, DRAG_BEGINNING, DRAG_END ],
+        [ DRAG_END, DRAG_BEGINNING, DRAG_BEGINNING ],
+        [ DRAG_END, DRAG_END, DRAG_BEGINNING ]
         ]
 
-window = pyglet.window.Window(640, 400)
+get_opposite_io_direction = lambda d: -d+3
+
+window = pyglet.window.Window(1024, 768, resizable=True)
 
 i = 0
 
@@ -47,10 +49,13 @@ class Entity:
         elif kind == EXTRACTOR:
             image = pyglet.image.load("extractor.png")
             x -= image.width/2
-            y -= image.width/2
+            y -= image.height/2
             self.attach_points = [(1+x, 28+y), (52+x, 28+y), (12+x, 1+y)]
         elif kind == MULTIPLEXER:
             image = pyglet.image.load("multiplexer.png")
+            x -= image.width/2
+            y -= image.height/2
+            self.attach_points = [(30+x, 1+y), (1+x, 7+y), (18+x, 37+y)]
         self.sprite = pyglet.sprite.Sprite(image, x, y)
         self.x = x
         self.y = y
@@ -59,6 +64,7 @@ class Entity:
         self.hover = 0
         self.connections = [None, None, None]
         self.drag_offset = (0, 0)
+        self.drag = False
         
         self.mouse_update(x, y)
 
@@ -90,7 +96,7 @@ class Entity:
             for i in range(3):
                 connection = self.connections[i]
                 if connection:
-                    connection.update_endpoint(self, self.attach_points[i])
+                    connection.update_endpoint(in_out_direction[self.kind][i], self.attach_points[i])
 
             if mouse_x < 0 or mouse_x > window.width or mouse_y < 0 or mouse_y > window.height:
                 for connection in self.connections:
@@ -101,22 +107,33 @@ class Entity:
                 drag_entity = None
                 del(self)
 
+    def start_drag(self, mouse_x, mouse_y):
+        self.drag_offset = (mouse_x-self.x, mouse_y-self.y)
+        self.drag = True
+
+    def end_drag(self):
+        self.drag = False
+
     def mouse_press(self, mouse_x, mouse_y):
 
         global drag_connection, drag_entity
 
-        if self.hover > NONE and self.hover < ALL:
+        if self.hover == NONE:
+
+            return True
+
+        elif self.hover < ALL:
 
             if drag_connection == None:
                 if self.connections[self.hover-1] == None:
                     direction = directions[self.kind][self.hover-1]
-                    drag_connection = self.connections[self.hover-1] = Connection(self.attach_points[self.hover-1], direction, self, sides[self.kind][self.hover-1] )
+                    drag_connection = self.connections[self.hover-1] = Connection(self.attach_points[self.hover-1], direction, self, get_opposite_io_direction(in_out_direction[self.kind][self.hover-1]) )
                 else:
                     self.connections[self.hover-1].begin_drag(self)
                 drag_connection.mouse_update(mouse_x, mouse_y)
 
             else:
-                if drag_connection.in_entity != self and drag_connection.out_entity != self:
+                if in_out_direction[self.kind][self.hover-1] == drag_connection.drag:
 
                     previous_connection = self.connections[self.hover-1]
 
@@ -130,14 +147,22 @@ class Entity:
         elif self.hover == ALL:
             if drag_entity == None and drag_connection == None:
                 drag_entity = self
-                self.drag_offset = (mouse_x-self.x, mouse_y-self.y)
+                self.start_drag(mouse_x, mouse_y)
 
     def mouse_release(self, mouse_x, mouse_y):
 
         global drag_connection, drag_entity
 
-        if drag_entity == self:
+        if self.drag == True:
+            self.end_drag()
             drag_entity = None
+
+    def selection_frame(self, start, end):
+
+        print "hello"
+        if self.x > start[0] and self.x+self.width < end[0] and self.y > start[1] and self.y+self.height < end[1]:
+            print "world"
+            self.start_drag(end[0], end[1])
 
     def draw(self):
 
@@ -230,14 +255,14 @@ class Connection:
         self.drag = NONE
         drag_connection = None
 
-    def update_endpoint(self, entity, new_endpoint):
+    def update_endpoint(self, end, new_endpoint):
 
-        if entity == self.in_entity:
+        if end == DRAG_BEGINNING:
             diff = vec2.sub(new_endpoint, self.p0)
             self.p0 = new_endpoint
             self.p1 = vec2.add(diff, self.p1)
 
-        if entity == self.out_entity:
+        if end == DRAG_END:
             diff = vec2.sub(new_endpoint, self.p3)
             self.p3 = new_endpoint
             self.p2 = vec2.add(diff, self.p2)
@@ -345,10 +370,14 @@ entities = [test, test2]
 drag_connection = None
 drag_entity = None
 
-add_dialog = pyglet.text.Label(text="", font_name="Courier", anchor_x="center", anchor_y="center", x=window.width/2, y=window.height/2)
+add_dialog = pyglet.text.Label(text="", font_name="Courier", font_size=24, anchor_x="center", anchor_y="center", x=window.width/2, y=window.height/2)
 add_dialog.set_style("background_color", (0, 0, 0, 255))
 add_dialog_active = False
-add_dialog_start = 0
+add_dialog_start = (0, 0)
+
+selection_frame = False
+selection_frame_start = (0, 0)
+selection_frame_end = (0, 0)
 
 @window.event
 def on_draw():
@@ -359,6 +388,12 @@ def on_draw():
 
     if add_dialog_active == True:
         add_dialog.draw()
+
+    if selection_frame == True:
+        pyglet.graphics.draw(4, pyglet.gl.GL_LINE_LOOP,
+                ('v2i', (selection_frame_start[0], selection_frame_start[1], selection_frame_end[0], selection_frame_start[1], selection_frame_end[0], selection_frame_end[1], selection_frame_start[0], selection_frame_end[1])),
+                ('c4f', (1.0,)*16)
+                )
 
 @window.event
 def on_mouse_motion(x, y, dx, dy):
@@ -372,11 +407,21 @@ def on_mouse_motion(x, y, dx, dy):
 @window.event
 def on_mouse_press(x, y, button, modifiers):
 
-    global drag_connection, add_dialog_active, add_dialog_start
+    global drag_connection, add_dialog_active, add_dialog_start, selection_frame, selection_frame_start, selection_frame_end
 
     if button == pyglet.window.mouse.LEFT:
+        click_captured = False
         for entity in entities:
-            entity.mouse_press(x, y)
+            if entity.mouse_press(x, y):
+                continue
+            else:
+                click_captured = True
+                break
+
+        if click_captured == False:
+            selection_frame = True
+            selection_frame_start = selection_frame_end = (x, y)
+
 
     elif button == pyglet.window.mouse.RIGHT:
         if drag_connection:
@@ -390,6 +435,8 @@ def on_mouse_press(x, y, button, modifiers):
 @window.event
 def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
 
+    global selection_frame_end
+
     for entity in entities:
         entity.mouse_drag(x, y)
 
@@ -397,29 +444,44 @@ def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
         d = add_dialog_start[1] - y
         if d < 10:
             add_dialog.text = "INJECTOR"
-        elif d < 30:
-            add_dialog.text = "EXTRACTOR"
         elif d < 50:
-            add_dialog.text = "MULTIPLEXOR"
+            add_dialog.text = "EXTRACTOR"
+        elif d < 90:
+            add_dialog.text = "MULTIPLEXER"
         else:
             add_dialog.text = ""
+
+    if selection_frame == True:
+        selection_frame_end = (x, y)
 
 
 @window.event
 def on_mouse_release(x, y, button, modifiers):
 
-    global add_dialog_active
+    global add_dialog_active, selection_frame
 
     if button == pyglet.window.mouse.LEFT:
-        for entity in entities:
-            entity.mouse_release(x, y)
+        if selection_frame == True:
+            for entity in entities:
+                entity.selection_frame(selection_frame_start, selection_frame_end)
+            selection_frame = False
+        else:
+            for entity in entities:
+                entity.mouse_release(x, y)
     
     elif button == pyglet.window.mouse.RIGHT and add_dialog_active == True:
         if add_dialog.text == "INJECTOR":
             entities.append(Entity(INJECTOR, add_dialog_start[0], add_dialog_start[1]))
         elif add_dialog.text == "EXTRACTOR":
             entities.append(Entity(EXTRACTOR, add_dialog_start[0], add_dialog_start[1]))
+        elif add_dialog.text == "MULTIPLEXER":
+            entities.append(Entity(MULTIPLEXER, add_dialog_start[0], add_dialog_start[1]))
         add_dialog_active = False
         add_dialog_text = ""
+
+@window.event
+def on_resize(width, height):
+
+    pass
 
 pyglet.app.run()
