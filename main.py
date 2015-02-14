@@ -63,6 +63,7 @@ class Entity:
         self.height = image.height
         self.hover = 0
         self.connections = [None, None, None]
+        self.partner = None
         self.drag_offset = (0, 0)
         self.drag = False
         
@@ -164,6 +165,82 @@ class Entity:
             print "world"
             self.start_drag(end[0], end[1])
 
+    def update_tree(self, stack, entry_connection):
+
+        if self.kind == INJECTOR:
+
+            if entry_connection == self.connections[0]:
+                if stack != []:
+                    self.partner = stack.pop()
+                    self.partner.partner = self
+                else:
+                    self.partner = None
+
+                if self.connections[1]:
+                    self.connections[1].out_entity.update_tree(stack, self.connections[1])
+
+            elif entry_connection == self.connections[2]:
+                if self.partner:
+                    if self.partner.connections[2]:
+                        self.partner.connections[2].out_entity.update_tree(stack, self.partner.connections[2])
+                else:
+                    pass
+
+        elif self.kind == EXTRACTOR:
+
+            self.partner = None
+            stack.append(self)
+            if self.connections[1]:
+                self.connections[1].out_entity.update_tree(stack, self.connections[1])
+
+            if self in stack:
+                stack.remove(self)
+                if self.connections[2]:
+                    self.connections[2].out_entity.update_tree(stack, self.connections[2])
+
+        elif self.kind == MULTIPLEXER:
+
+            if self.connections[2]:
+                self.connections[2].out_entity.update_tree(stack, self.connections[2])
+
+    def update_depth(self, entry_connection):
+
+        if self.kind == INJECTOR:
+
+            if entry_connection == self.connections[0]:
+                if self.connections[1]:
+                    if self.partner:
+                        self.connections[1].depth = entry_connection.depth - 1
+                    else:
+                        self.connections[1].depth = entry_connection.depth
+                    self.connections[1].out_entity.update_depth(self.connections[1])
+
+            elif entry_connection == self.connections[2]:
+                if self.partner:
+                    if self.partner.connections[2]:
+                        self.partner.connections[2].depth = entry_connection.depth
+                        self.partner.connections[2].out_entity.update_depth(self.partner.connections[2])
+
+        elif self.kind == EXTRACTOR:
+
+            if self.connections[1]:
+                if self.partner:
+                    self.connections[1].depth = entry_connection.depth + 1
+                else:
+                    self.connections[1].depth = entry_connection.depth
+                self.connections[1].out_entity.update_depth(self.connections[1])
+
+            if not self.partner or (self.partner and self.partner.connections[2] == None):
+                if self.connections[2]:
+                    self.connections[2].depth = 0
+                    self.connections[2].out_entity.update_depth(self.connections[2])
+
+        elif self.kind == MULTIPLEXER:
+
+            if self.connections[2]:
+                self.connections[2].depth = entry_connection.depth
+                self.connections[2].out_entity.update_depth(self.connections[2])
+
     def draw(self):
 
         self.sprite.draw()
@@ -185,6 +262,7 @@ class Connection:
         self.p2 = self.p3 = vec2.add([1, 1], start)
         self.in_entity = None
         self.out_entity = None
+        self.depth = 0
 
         self.drag = side
         if side == DRAG_END:
@@ -269,7 +347,15 @@ class Connection:
 
     def draw(self):
 
-        draw_thick_cubic_bezier([self.p0, self.p1, self.p2, self.p3], 3)
+        thickness = 3*self.depth
+
+        draw_thick_cubic_bezier([self.p0, self.p1, self.p2, self.p3], thickness+3, (1.0, 1.0, 1.0, 1.0))
+
+        for i in range(self.depth):
+            draw_thick_cubic_bezier([self.p0, self.p1, self.p2, self.p3], thickness, (0.0, 0.0, 0.0, 1.0))
+            thickness -= 1
+            draw_thick_cubic_bezier([self.p0, self.p1, self.p2, self.p3], thickness, (0.2, 0.5, 1.0, 1.0))
+            thickness -= 2
 
 def draw_circle(center, radius):
 
@@ -309,7 +395,7 @@ def draw_cubic_bezier(points):
         sx = ex
         sy = ey
 
-def draw_thick_cubic_bezier(points, width):
+def draw_thick_cubic_bezier(points, width, color):
 
     t = 0.0
     curve_points = []
@@ -359,9 +445,9 @@ def draw_thick_cubic_bezier(points, width):
         indices.append(i+1+l)
         indices.append(i+l)
 
-    pyglet.graphics.draw_indexed(len(all_points)/2, pyglet.gl.GL_TRIANGLES, indices,#TODO: Triangularize!
+    pyglet.graphics.draw_indexed(len(all_points)/2, pyglet.gl.GL_TRIANGLES, indices,
             ('v2i', all_points),
-            ('c4f', (1.0,)*len(all_points)*2)
+            ('c4f', color*(len(all_points)/2))
             )
 
 test = Entity(INJECTOR, 50, 50)
@@ -478,6 +564,19 @@ def on_mouse_release(x, y, button, modifiers):
             entities.append(Entity(MULTIPLEXER, add_dialog_start[0], add_dialog_start[1]))
         add_dialog_active = False
         add_dialog_text = ""
+
+    if not drag_connection:
+        for entity in entities:
+            if entity.connections[0] == None and entity.kind != MULTIPLEXER:
+
+                class Dummy_connection:
+                    def __init__(self):
+                        self.depth = 0
+
+                entity.connections[0] = Dummy_connection()
+                entity.update_tree(stack=[], entry_connection=entity.connections[0])
+                entity.update_depth(entry_connection=entity.connections[0])
+                entity.connections[0] = None
 
 @window.event
 def on_resize(width, height):
