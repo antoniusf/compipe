@@ -9,6 +9,9 @@ def sub(vec_a, vec_b):
 def mul(vec, sca):
     return [vec[0]*sca, vec[1]*sca]
 
+def inner(vec_a, vec_b):
+    return vec_a[0]*vec_b[0]+vec_a[1]*vec_b[1]
+
 def abs(vec):
     return math.sqrt(vec[0]**2+vec[1]**2)
 

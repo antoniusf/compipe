@@ -7,6 +7,7 @@ import vec2
 INJECTOR = 0
 EXTRACTOR = 1
 MULTIPLEXER = 2
+ROOT = 3
 
 NONE = 0
 INPUT_CONNECTOR = 1
@@ -20,13 +21,15 @@ DRAG_BEGINNING = 2
 directions = [
         [ (-72, 0), (72, 0), (32, 64) ],
         [ (-72, 0), (72, 0), (-32, -64) ],
-        [ (0, -72), (-62, -36), (0, 72) ]
+        [ (0, -72), (-62, -36), (0, 72) ],
+        [ (72, 0) ]
         ]
 
 in_out_direction = [
         [ DRAG_END, DRAG_BEGINNING, DRAG_END ],
         [ DRAG_END, DRAG_BEGINNING, DRAG_BEGINNING ],
-        [ DRAG_END, DRAG_END, DRAG_BEGINNING ]
+        [ DRAG_END, DRAG_END, DRAG_BEGINNING ],
+        [ DRAG_BEGINNING ]
         ]
 
 get_opposite_io_direction = lambda d: -d+3
@@ -34,13 +37,10 @@ get_opposite_io_direction = lambda d: -d+3
 window = pyglet.window.Window(1024, 768, resizable=True)
 gradtex = pyglet.image.load("gradient.png").get_texture()
 
-i = 0
-
-points = [ (1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0) ]
 
 class Entity:
 
-    def __init__(self, kind, x, y):
+    def __init__(self, kind, x, y, locked=False):
 
         self.kind = kind
         if kind == INJECTOR:
@@ -58,6 +58,12 @@ class Entity:
             x -= image.width/2
             y -= image.height/2
             self.attach_points = [(30+x, 1+y), (1+x, 7+y), (18+x, 37+y)]
+        elif kind == ROOT:
+            image = pyglet.image.load("root.png")
+            x -= image.width/2
+            y -= image.height/2
+            self.attach_points = [(32+x, 19+y)]
+            locked = True
         self.sprite = pyglet.sprite.Sprite(image, x, y)
         self.x = x
         self.y = y
@@ -68,6 +74,7 @@ class Entity:
         self.partner = None
         self.drag_offset = (0, 0)
         self.drag = False
+        self.locked = locked
         
         self.mouse_update(x, y)
 
@@ -148,7 +155,7 @@ class Entity:
                         previous_connection.mouse_update(mouse_x, mouse_y)
 
         elif self.hover == ALL:
-            if drag_entity == None and drag_connection == None:
+            if drag_entity == None and drag_connection == None and self.locked == False:
                 drag_entity = self
                 self.start_drag(mouse_x, mouse_y)
 
@@ -205,6 +212,11 @@ class Entity:
             if self.connections[2]:
                 self.connections[2].out_entity.update_tree(stack, self.connections[2])
 
+        elif self.kind == ROOT:
+
+            if self.connections[0]:
+                self.connections[0].out_entity.update_tree(stack, self.connections[0])
+
     def update_depth(self, entry_connection):
 
         if self.kind == INJECTOR:
@@ -243,6 +255,12 @@ class Entity:
                 self.connections[2].depth = entry_connection.depth
                 self.connections[2].out_entity.update_depth(self.connections[2])
 
+        elif self.kind == ROOT:
+
+            if self.connections[0]:
+                self.connections[0].depth = 0
+                self.connections[0].out_entity.update_depth(self.connections[0])
+
     def draw(self):
 
         self.sprite.draw()
@@ -280,6 +298,8 @@ class Connection:
             self.out_entity = begin_entity
             drag_connection = self
 
+        self.locked = False
+
     def remove(self):
 
         if self.in_entity:
@@ -307,16 +327,17 @@ class Connection:
 
         global drag_connection
 
-        if entity == self.in_entity:
-            self.remove_from_entity(self.in_entity)
-            self.in_entity = None
-            self.drag = DRAG_BEGINNING
-            drag_connection = self
-        elif entity == self.out_entity:
-            self.remove_from_entity(self.out_entity)
-            self.out_entity = None
-            self.drag = DRAG_END
-            drag_connection = self
+        if self.locked == False:
+            if entity == self.in_entity:
+                self.remove_from_entity(self.in_entity)
+                self.in_entity = None
+                self.drag = DRAG_BEGINNING
+                drag_connection = self
+            elif entity == self.out_entity:
+                self.remove_from_entity(self.out_entity)
+                self.out_entity = None
+                self.drag = DRAG_END
+                drag_connection = self
 
     def end_drag(self, end, direction, end_entity):
 
@@ -381,21 +402,21 @@ def draw_circle(center, radius):
             ('c4f', (1.0,)*(nr_segs+1)*4)
             )
 
-def draw_cubic_bezier(points):
-
-    t = 0.0
-    sx, sy = points[3]
-    while t <= 0.9:
-        t += 0.1
-        ex = points[0][0]*t*t*t+3*points[1][0]*t*t*(1-t)+3*points[2][0]*t*(1-t)*(1-t)+points[3][0]*(1-t)*(1-t)*(1-t)
-        ey = points[0][1]*t*t*t+3*points[1][1]*t*t*(1-t)+3*points[2][1]*t*(1-t)*(1-t)+points[3][1]*(1-t)*(1-t)*(1-t)
-        #print sx, sy, ex, ey, t, points[0]
-        pyglet.graphics.draw(2, pyglet.gl.GL_LINES,
-                ('v2i', (int(sx), int(sy), int(ex), int(ey))),
-                ('c4f', (1.0,)*8)
-                )
-        sx = ex
-        sy = ey
+#def draw_cubic_bezier(points):
+#
+#    t = 0.0
+#    sx, sy = points[3]
+#    while t <= 0.9:
+#        t += 0.1
+#        ex = points[0][0]*t*t*t+3*points[1][0]*t*t*(1-t)+3*points[2][0]*t*(1-t)*(1-t)+points[3][0]*(1-t)*(1-t)*(1-t)
+#        ey = points[0][1]*t*t*t+3*points[1][1]*t*t*(1-t)+3*points[2][1]*t*(1-t)*(1-t)+points[3][1]*(1-t)*(1-t)*(1-t)
+#        #print sx, sy, ex, ey, t, points[0]
+#        pyglet.graphics.draw(2, pyglet.gl.GL_LINES,
+#                ('v2i', (int(sx), int(sy), int(ex), int(ey))),
+#                ('c4f', (1.0,)*8)
+#                )
+#        sx = ex
+#        sy = ey
 
 def draw_thick_cubic_bezier(points, width, color):
 
@@ -411,7 +432,7 @@ def draw_thick_cubic_bezier(points, width, color):
     outer_tex_coords = []
     inner_points = []
     inner_tex_coords = []
-    ortho_vector = vec2.norm(vec2.sub(curve_points[1],curve_points[0]))#TODO: What happens when two points are in the same spot?
+    ortho_vector = vec2.norm(vec2.sub(curve_points[1],curve_points[0]))#todo SOLVED: What happens when two points are in the same spot? Two points never will be in the same spot, thanks to the direction always being added onto the endpoint.
     ortho_vector[0], ortho_vector[1] = -1*ortho_vector[1], ortho_vector[0]
     ortho_vector = vec2.mul(ortho_vector, width)
     inner_points.append(vec2.sub(curve_points[0], ortho_vector))
@@ -502,9 +523,7 @@ def draw_thick_cubic_bezier(points, width, color):
             #('c4f', color*(len(all_points)/2))
             )
 
-test = Entity(INJECTOR, 50, 50)
-test2 = Entity(INJECTOR, 100, 100)
-entities = [test, test2]
+entities = [Entity(ROOT, 5, window.width/2)]
 drag_connection = None
 drag_entity = None
 
@@ -619,7 +638,7 @@ def on_mouse_release(x, y, button, modifiers):
 
     if not drag_connection:
         for entity in entities:
-            if entity.connections[0] == None and entity.kind != MULTIPLEXER:
+            if entity.connections[0] == None and (entity.kind == EXTRACTOR or entity.kind == INJECTOR):
 
                 class Dummy_connection:
                     def __init__(self):
@@ -629,6 +648,9 @@ def on_mouse_release(x, y, button, modifiers):
                 entity.update_tree(stack=[], entry_connection=entity.connections[0])
                 entity.update_depth(entry_connection=entity.connections[0])
                 entity.connections[0] = None
+            elif entity.kind == ROOT:
+                entity.update_tree(stack=[], entry_connection=None)
+                entity.update_depth(entry_connection=None)
 
 @window.event
 def on_resize(width, height):
