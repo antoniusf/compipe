@@ -1,4 +1,5 @@
 import pyglet
+from pyglet.gl import *
 import math
 import time
 import vec2
@@ -31,6 +32,7 @@ in_out_direction = [
 get_opposite_io_direction = lambda d: -d+3
 
 window = pyglet.window.Window(1024, 768, resizable=True)
+gradtex = pyglet.image.load("gradient.png").get_texture()
 
 i = 0
 
@@ -406,13 +408,24 @@ def draw_thick_cubic_bezier(points, width, color):
         t += 0.01
 
     outer_points = []
+    outer_tex_coords = []
     inner_points = []
+    inner_tex_coords = []
     ortho_vector = vec2.norm(vec2.sub(curve_points[1],curve_points[0]))#TODO: What happens when two points are in the same spot?
     ortho_vector[0], ortho_vector[1] = -1*ortho_vector[1], ortho_vector[0]
     ortho_vector = vec2.mul(ortho_vector, width)
     inner_points.append(vec2.sub(curve_points[0], ortho_vector))
     outer_points.append(vec2.add(curve_points[0], ortho_vector))
 
+    diff = vec2.sub(inner_points[-1], vec2.vecint(inner_points[-1]))
+    projected_diff = -vec2.inner(ortho_vector, diff)/vec2.abs(ortho_vector)
+    inner_tex_coords.extend([0.0, 1.0-projected_diff/width/2, 0.0])
+
+    diff = vec2.sub(outer_points[-1], vec2.vecint(outer_points[-1]))
+    projected_diff = -vec2.inner(ortho_vector, diff)/vec2.abs(ortho_vector)
+    outer_tex_coords.extend([0.0, (1-projected_diff)/width/2, 0.0])
+
+    r = 1.0
     for i in range(1, len(curve_points)-1):
         ortho_vector = vec2.norm(vec2.sub(curve_points[i+1], curve_points[i-1]))
         ortho_vector[0], ortho_vector[1] = -1*ortho_vector[1], ortho_vector[0]
@@ -420,16 +433,52 @@ def draw_thick_cubic_bezier(points, width, color):
         inner_points.append(vec2.sub(curve_points[i], ortho_vector))
         outer_points.append(vec2.add(curve_points[i], ortho_vector))
 
+        diff = vec2.sub(inner_points[-1], vec2.vecint(inner_points[-1]))
+        projected_diff = -vec2.inner(ortho_vector, diff)/vec2.abs(ortho_vector)
+        inner_tex_coords.extend([r, 1.0-projected_diff/width/2, 0.0])
+
+        diff = vec2.sub(outer_points[-1], vec2.vecint(outer_points[-1]))
+        projected_diff = -vec2.inner(ortho_vector, diff)/vec2.abs(ortho_vector)
+        outer_tex_coords.extend([r, (1-projected_diff)/width/2, 0.0])
+
+        r = -r+1 #make r alternate between 0 and 1
+
     ortho_vector = vec2.norm(vec2.sub(curve_points[-1], curve_points[-2]))
     ortho_vector[0], ortho_vector[1] = -1*ortho_vector[1], ortho_vector[0]
     ortho_vector = vec2.mul(ortho_vector, width)
     inner_points.append(vec2.sub(curve_points[-1], ortho_vector))
     outer_points.append(vec2.add(curve_points[-1], ortho_vector))
 
+    diff = vec2.sub(inner_points[-1], vec2.vecint(inner_points[-1]))
+    projected_diff = -vec2.inner(ortho_vector, diff)/vec2.abs(ortho_vector)
+    inner_tex_coords.extend([r, 1.0-projected_diff/width/2, 0.0])
+
+    diff = vec2.sub(outer_points[-1], vec2.vecint(outer_points[-1]))
+    projected_diff = -vec2.inner(ortho_vector, diff)/vec2.abs(ortho_vector)
+    outer_tex_coords.extend([r, (1-projected_diff)/width/2, 0.0])
+
     all_points = []
+    tex_coords = []
+    tex_coords.extend(inner_tex_coords)
+    tex_coords.extend(outer_tex_coords)
     for point in inner_points:
-        all_points.extend(point)
+        x = int(point[0])
+        y = int(point[1])
+        #diff = vec2.abs((x-point[0], y-point[1]))
+        #if bit == True:
+        #    tex_coords.extend([0.0, 1.0-diff/a, 0.0])
+        #else:
+        #    tex_coords.extend([1.0, 1.0-diff/a, 0.0])
+        #bit ^= True
+        all_points.extend([x, y])
     for point in outer_points:
+        x = int(point[0])
+        y = int(point[1])
+        #if bit == True:
+        #    tex_coords.extend([0.0, (1-diff)/a, 0.0])
+        #else:
+        #    tex_coords.extend([1.0, (1-diff)/a, 0.0])
+        #bit ^= True
         all_points.extend(point)
     all_points = [int(p) for p in all_points]
     all_points = tuple(all_points)
@@ -445,9 +494,12 @@ def draw_thick_cubic_bezier(points, width, color):
         indices.append(i+1+l)
         indices.append(i+l)
 
+    glEnable(gradtex.target)
+    glBindTexture(gradtex.target, gradtex.id)
     pyglet.graphics.draw_indexed(len(all_points)/2, pyglet.gl.GL_TRIANGLES, indices,
             ('v2i', all_points),
-            ('c4f', color*(len(all_points)/2))
+            ('t3f', tuple(tex_coords))
+            #('c4f', color*(len(all_points)/2))
             )
 
 test = Entity(INJECTOR, 50, 50)
